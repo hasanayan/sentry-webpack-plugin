@@ -1,6 +1,7 @@
 const SentryCli = require('@sentry/cli');
 const path = require('path');
 const util = require('util');
+const { RawSource } = require('webpack-sources');
 
 const SENTRY_LOADER = path.resolve(__dirname, 'sentry.loader.js');
 const SENTRY_MODULE = path.resolve(__dirname, 'sentry-webpack.module.js');
@@ -67,6 +68,38 @@ function attachAfterEmitHook(compiler, callback) {
   } else {
     compiler.plugin('after-emit', callback);
   }
+}
+
+function attachAfterCodeGenerationHook(compiler, options) {
+  if (!compiler.hooks || !compiler.hooks.make) return;
+  compiler.hooks.make.tapAsync('SentryCliPlugin', (compilation, cb) => {
+    options.releasePromise.then(version => {
+      compilation.hooks.afterCodeGeneration.tap('SentryCliPlugin', () => {
+        compilation.modules.forEach(module => {
+          // eslint-disable-next-line no-underscore-dangle
+          if (module._name !== options.remoteModuleName) return;
+          const sourceMap = compilation.codeGenerationResults.get(module)
+            .sources;
+          const rawSource = sourceMap.get('javascript');
+          sourceMap.set(
+            'javascript',
+            new RawSource(
+              `${rawSource.source()} 
+(function (){
+var globalThis = (typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {});
+globalThis.SENTRY_RELEASES = globalThis.SENTRY_RELEASES || {};
+globalThis.SENTRY_RELEASES["${options.remoteModuleName}"] = {"id":"${version}"};
+globalThis.SENTRY_RELEASES["${options.project}@${
+                options.org
+              }"] = {"id":"${version}"};
+})();`
+            )
+          );
+        });
+      });
+      cb();
+    });
+  });
 }
 
 class SentryCliPlugin {
@@ -301,6 +334,7 @@ class SentryCliPlugin {
         releasePromise: this.release,
         org: this.options.org || process.env.SENTRY_ORG,
         project: this.options.project || process.env.SENTRY_PROJECT,
+        remoteModuleName: this.remoteModuleName,
       },
     };
 
@@ -318,6 +352,7 @@ class SentryCliPlugin {
             releasePromise: this.release,
             org: this.options.org || process.env.SENTRY_ORG,
             project: this.options.project || process.env.SENTRY_PROJECT,
+            remoteModuleName: this.remoteModuleName,
           },
         },
       ],
@@ -473,11 +508,28 @@ class SentryCliPlugin {
     const compilerOptions = compiler.options || {};
     ensure(compilerOptions, 'module', Object);
 
+    const moduleFederationPlugin =
+      compilerOptions.plugins &&
+      compilerOptions.plugins.find(
+        x => x.constructor.name === 'ModuleFederationPlugin'
+      );
+    if (moduleFederationPlugin) {
+      // eslint-disable-next-line no-underscore-dangle
+      this.remoteModuleName = moduleFederationPlugin._options.name;
+    }
+
     if (this.options.debug) {
       this.injectReleaseWithDebug(compilerOptions);
     } else {
       this.injectRelease(compilerOptions);
     }
+
+    attachAfterCodeGenerationHook(compiler, {
+      releasePromise: this.release,
+      org: this.options.org || process.env.SENTRY_ORG,
+      project: this.options.project || process.env.SENTRY_PROJECT,
+      remoteModuleName: this.remoteModuleName,
+    });
 
     attachAfterEmitHook(compiler, (compilation, cb) => {
       if (!this.options.include || !this.options.include.length) {
