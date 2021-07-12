@@ -1,5 +1,5 @@
 module.exports = function sentryLoader(content, map, meta) {
-  const { releasePromise, org, project, remoteModuleName } = this.query;
+  const { releasePromise, org, project } = this.query;
   const callback = this.async();
   releasePromise.then(version => {
     let sentryRelease = `const _global = (typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {}); _global.SENTRY_RELEASE={id:"${version}"};`;
@@ -8,7 +8,6 @@ module.exports = function sentryLoader(content, map, meta) {
       sentryRelease += `
       _global.SENTRY_RELEASES=_global.SENTRY_RELEASES||{};
       _global.SENTRY_RELEASES["${key}"]={id:"${version}"};
-      _global.SENTRY_RELEASES["${remoteModuleName}"]={id:"${version}"};
       `;
     }
     callback(null, sentryRelease, map, meta);

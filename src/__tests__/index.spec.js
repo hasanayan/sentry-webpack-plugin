@@ -87,6 +87,9 @@ describe('CLI configuration', () => {
         afterEmit: { tapAsync: jest.fn() },
         make: { tapAsync: jest.fn() },
       },
+      options: {
+        plugins: [],
+      },
     });
     expect(SentryCliMock.mock.instances.length).toBe(1);
   });
@@ -100,6 +103,9 @@ describe('afterEmitHook', () => {
 
   beforeEach(() => {
     compiler = {
+      options: {
+        plugins: [],
+      },
       hooks: {
         afterEmit: {
           tapAsync: jest.fn((name, callback) =>
@@ -139,7 +145,7 @@ describe('afterEmitHook', () => {
     const sentryCliPlugin = new SentryCliPlugin();
 
     // Simulate Webpack <= 2
-    compiler = { plugin: jest.fn() };
+    compiler = { plugin: jest.fn(), options: { plugins: [] } };
     sentryCliPlugin.apply(compiler);
 
     expect(compiler.plugin).toHaveBeenCalledWith(
